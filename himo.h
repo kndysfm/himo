@@ -28,20 +28,31 @@ namespace himo
 	class BoundData: public IBinder<KeyType>
 	{
 	private:
-		std::vector<KeyType> bound_ctrls_;
+		std::vector<KeyType> bound_keys_;
 		std::function<ValueType (KeyType)> func_reader_;
 		std::function<void (KeyType, ValueType)> func_writer_;
 		std::function<int (ValueType, ValueType)> func_comparator_;
 		ValueType value_;
 
-		void update(ValueType v, KeyType root = NULL)
+		void update(ValueType v)
 		{
 			value_ = v;
 			if (!func_writer_) return;
 
-			for (auto c : bound_ctrls_)
+			for (auto k : bound_keys_)
 			{
-				if (c != root) func_writer_(c, v);
+				func_writer_(k, v);
+			}
+		}
+
+		void update(ValueType v, KeyType k_root)
+		{
+			value_ = v;
+			if (!func_writer_) return;
+
+			for (auto k : bound_keys_)
+			{
+				if (k != k_root) func_writer_(k, v);
 			}
 		}
 
@@ -65,7 +76,7 @@ namespace himo
 		{
 			if (!::IsWindow(key)) return FALSE;
 
-			bound_ctrls_.push_back(key);
+			bound_keys_.push_back(key);
 			if (func_writer_) func_writer_(key, value_);
 			return TRUE;
 		}
@@ -86,7 +97,7 @@ namespace himo
 	class BoundCommand : public IBinder<KeyType>
 	{
 	private:
-		std::vector<KeyType> bound_ctrls_;
+		std::vector<KeyType> bound_keys_;
 		bool enabled_;
 		std::function<void(KeyType, bool)> func_enabler_;
 		bool async_;
@@ -99,9 +110,9 @@ namespace himo
 			enabled_ = executable;
 			if (!func_enabler_) return;
 
-			for (auto c : bound_ctrls_)
+			for (auto k : bound_keys_)
 			{
-				func_enabler_(c, executable);
+				func_enabler_(k, executable);
 			}
 		}
 
@@ -142,7 +153,7 @@ namespace himo
 		{
 			if (!::IsWindow(key)) return FALSE;
 
-			bound_ctrls_.push_back(key);
+			bound_keys_.push_back(key);
 			if (func_enabler_) func_enabler_(key, enabled_);
 			return TRUE;
 		}
@@ -164,7 +175,7 @@ namespace himo
 	class Binder: public IBinder<KeyType>
 	{
 	private:
-		std::map<KeyType, std::vector<IBinder<KeyType> *>> bounds_;
+		std::map<KeyType, std::vector<IBinder<KeyType> *>> bindings_;
 
 	public:
 		virtual bool Bind(IBinder *bound, KeyType key) sealed
@@ -173,23 +184,23 @@ namespace himo
 
 			if (!bound->Bind(this, key)) return FALSE;
 
-			bounds_[key].push_back(bound);
+			bindings_[key].push_back(bound);
 			return TRUE;
 		}
 
 		virtual void OnCommand(KeyType key) sealed
 		{
-			if (bounds_.count(key) == 1)
+			if (bindings_.count(key) == 1)
 			{
-				for (auto b: bounds_[key]) b->OnCommand(key);
+				for (auto b: bindings_[key]) b->OnCommand(key);
 			}
 		}
 
 		virtual void OnNotify(KeyType key) sealed
 		{
-			if (bounds_.count(key) == 1)
+			if (bindings_.count(key) == 1)
 			{
-				for (auto b : bounds_[key]) b->OnNotify(key);
+				for (auto b : bindings_[key]) b->OnNotify(key);
 			}
 		}
 	};
