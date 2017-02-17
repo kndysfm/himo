@@ -27,8 +27,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	return NULL;
 }
 
+typedef std::basic_string<_TCHAR> tstring;
 // value bound to HWND of window control
-static himo::BoundData<HWND, std::wstring> bound_string(_T(""));
+static himo::BoundData<HWND, tstring> bound_string(_T(""));
 static himo::BoundData<HWND, BOOL> bound_boolean(TRUE);
 // command bound to HWND of button mainly
 static himo::BoundCommand<HWND> command_append, command_toggle;
@@ -39,17 +40,17 @@ static void init_bindings(HWND hWnd)
 {
 	// Bind string value to show as window text
 	bound_string.AttachWriter(
-		[](HWND h, std::wstring str) {
+		[](HWND h, tstring str) {
 		::SetWindowText(h, str.c_str());
 	});
 	bound_string.AttachReader(
 		[](HWND h) {
 		wchar_t buf[256];
 		::GetWindowText(h, buf, sizeof(buf));
-		return std::wstring(buf);
+		return tstring(buf);
 	});
 	bound_string.AttachComparator(
-		[](std::wstring a, std::wstring b) {
+		[](tstring a, tstring b) {
 		return (a == b) ? 0 : 1;
 	});
 	binder.Bind(&bound_string, ::GetDlgItem(hWnd, IDC_EDIT1));
@@ -73,20 +74,18 @@ static void init_bindings(HWND hWnd)
 	binder.Bind(&bound_boolean, ::GetDlgItem(hWnd, IDC_EDIT4));
 	binder.Bind(&bound_boolean, ::GetDlgItem(hWnd, IDC_EDIT5));
 
+	// lambda formula to cast standartd bool into BOOL
+	auto func_enwin = [](HWND h, bool en) { ::EnableWindow(h, (BOOL)en); };
 	// Asynchronous command
-	command_append.AttachEnabler(
-		[](HWND h, bool en) { ::EnableWindow(h, (BOOL)en); }
-	);
+	command_append.AttachEnabler(func_enwin );
 	command_append.AttachAction(
-		[](HWND) { ::Sleep(1000); bound_string = (std::wstring)bound_string + _T("1"); },
+		[](HWND) { ::Sleep(1000); bound_string = (tstring)bound_string + _T("1"); },
 		true /* async */
 	);
 	binder.Bind(&command_append, ::GetDlgItem(hWnd, IDC_BUTTON1));
 
 	// Synchronous command
-	command_toggle.AttachEnabler(
-		[](HWND h, bool en) { ::EnableWindow(h, (BOOL)en); }
-	);
+	command_toggle.AttachEnabler(func_enwin );
 	command_toggle.AttachAction(
 		[](HWND) { bound_boolean = !bound_boolean; }
 	);
