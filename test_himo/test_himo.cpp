@@ -39,11 +39,11 @@ static himo::Binder<HWND> binder;
 static void init_bindings(HWND hWnd)
 {
 	// Bind string value to show as window text
-	bound_string.AttachWriter(
+	bound_string.AttachSetter(
 		[](HWND h, tstring str) {
 		::SetWindowText(h, str.c_str());
 	});
-	bound_string.AttachReader(
+	bound_string.AttachGetter(
 		[](HWND h) {
 		wchar_t buf[256];
 		::GetWindowText(h, buf, sizeof(buf));
@@ -65,8 +65,8 @@ static void init_bindings(HWND hWnd)
 	binder.Bind(&bound_string, ::GetDlgItem(hWnd, IDC_STATIC_5));
 
 	// Bind booleaan value to enable bound controls
-	bound_boolean.AttachReader(&::IsWindowEnabled);
-	bound_boolean.AttachWriter(&::EnableWindow);
+	bound_boolean.AttachGetter(&::IsWindowEnabled);
+	bound_boolean.AttachSetter(&::EnableWindow);
 	bound_boolean.AttachComparator([](BOOL a, BOOL b) { return a ^ b; });
 	binder.Bind(&bound_boolean, ::GetDlgItem(hWnd, IDC_EDIT1));
 	binder.Bind(&bound_boolean, ::GetDlgItem(hWnd, IDC_EDIT2));
