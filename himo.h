@@ -1,7 +1,5 @@
 #pragma once
 
-#include <windows.h>
-
 #include <functional>
 #include <vector>
 #include <map>
