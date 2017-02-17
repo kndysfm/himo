@@ -108,6 +108,13 @@ namespace himo
 		void AttachSetter(std::function<void(KeyType, ValueType)> setter) { func_setter_ = setter; }
 		void AttachComparator(std::function<int(ValueType, ValueType)> comparator) { func_comparator_ = comparator; }
 		void AttachValidator(std::function<ValueType(ValueType)> validator) { func_validator_ = validator; }
+		void CopyBehavior(BoundData const &src)
+		{
+			func_getter_ = src.func_getter_;
+			func_setter_ = src.func_setter_;
+			func_comparator_ = src.func_comparator_;
+			func_validator_ = src.func_validator_;
+		}
 	};
 
 	template<typename KeyType>
@@ -185,7 +192,11 @@ namespace himo
 
 		void AttachEnabler(std::function<void(KeyType, bool)> enabler) { std::lock_guard<std::mutex> lock(mtx_); func_enabler_ = enabler; }
 		void AttachAction(std::function<void(KeyType)> action, bool async = false) { std::lock_guard<std::mutex> lock(mtx_); func_action_ = action; async_ = async; }
-
+		void CopyBehavior(BoundCommand const &src)
+		{
+			func_enabler_ = src->func_enabler_;
+			func_action_ = src->func_action_;
+		}
 	};
 
 	template<typename KeyType>
