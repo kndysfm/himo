@@ -152,6 +152,7 @@ namespace himo
 	public:
 
 		BoundCommand(bool executable = true) :enabled_(executable), async_(false) { }
+		virtual ~BoundCommand() { if (thread_.joinable()) thread_.join(); }
 
 		void Enable(bool executable) { std::lock_guard<std::mutex> lock(mtx_); update(executable); }
 		bool IsEnabled() const { return enabled_; }
