@@ -29,41 +29,57 @@ namespace himo
 	{
 	private:
 		std::vector<KeyType> bound_keys_;
-		std::function<ValueType (KeyType)> func_reader_;
-		std::function<void (KeyType, ValueType)> func_writer_;
+		std::function<ValueType (KeyType)> func_getter_;
+		std::function<void (KeyType, ValueType)> func_setter_;
 		std::function<int (ValueType, ValueType)> func_comparator_;
+		std::function<ValueType (ValueType)> func_validator_;
 		ValueType value_;
 
 		void update(ValueType v)
 		{
 			value_ = v;
-			if (!func_writer_) return;
+			if (!func_setter_) return;
 
-			for (auto k : bound_keys_)
+			if (func_validator_ && func_comparator_)
 			{
-				func_writer_(k, v);
+				ValueType v_validated = func_validator_(v);
+				if (func_comparator_(v, v_validated) != 0)
+				{	// invalid value
+					return; // not update
+				}
 			}
-		}
-
-		void update(ValueType v, KeyType k_root)
-		{
-			value_ = v;
-			if (!func_writer_) return;
 
 			for (auto k : bound_keys_)
 			{
-				if (k != k_root) func_writer_(k, v);
+				func_setter_(k, v);
 			}
 		}
 
 		virtual void OnCommand(KeyType key) sealed
 		{
-			if (!func_reader_) return;
+			if (!func_getter_) return;
 
-			ValueType v = func_reader_(key);
+			ValueType v = func_getter_(key);
+			
+			if (func_validator_ && func_comparator_)
+			{
+				ValueType v_validated = func_validator_(v);
+				if (func_comparator_(v, v_validated) != 0)
+				{	// invalid value
+					func_setter_(key, value_);
+					return; // not update
+				}
+			}
+
 			if (!func_comparator_ || func_comparator_(value_, v) != 0)
 			{
-				update(v, key);
+				value_ = v;
+				if (!func_setter_) return;
+
+				for (auto k : bound_keys_)
+				{
+					if (k != key) func_setter_(k, v);
+				}
 			}
 		}
 
@@ -77,7 +93,7 @@ namespace himo
 			if (!::IsWindow(key)) return FALSE;
 
 			bound_keys_.push_back(key);
-			if (func_writer_) func_writer_(key, value_);
+			if (func_setter_) func_setter_(key, value_);
 			return TRUE;
 		}
 	public:
@@ -88,9 +104,10 @@ namespace himo
 		ValueType GetValue() const { return value_; }
 		operator ValueType() const { return value_; }
 		BoundData & operator= (const ValueType& v) { update(v); return *this; }
-		void AttachReader(std::function<ValueType(KeyType)> reader) { func_reader_ = reader; }
-		void AttachWriter(std::function<void(KeyType, ValueType)> writer) { func_writer_ = writer; }
+		void AttachGetter(std::function<ValueType(KeyType)> getter) { func_getter_ = getter; }
+		void AttachSetter(std::function<void(KeyType, ValueType)> setter) { func_setter_ = setter; }
 		void AttachComparator(std::function<int(ValueType, ValueType)> comparator) { func_comparator_ = comparator; }
+		void AttachValidator(std::function<ValueType(ValueType)> validator) { func_validator_ = validator; }
 	};
 
 	template<typename KeyType>
