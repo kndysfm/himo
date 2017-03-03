@@ -22,18 +22,37 @@ namespace himo
 		virtual bool Bind(IBinder<KeyType> *, KeyType) = 0;
 		virtual void OnCommand(KeyType) = 0;
 		virtual void OnNotify(KeyType) = 0;
-		virtual void OnDraw(void) = 0;
+		virtual bool OnDraw(void) = 0;
 		virtual void Invalidate(void) = 0;
 	};
 
 	template<typename KeyType>
 	class BoundBase : public IBinder<KeyType>
 	{
-	protected:
+	private:
 		bool invalidated_;
 		IBinder<KeyType> *binder_;
 
+	protected:
 		BoundBase() : binder_(nullptr), invalidated_(true) { }
+
+		virtual bool Bind(IBinder *binder, KeyType key)
+		{
+			// parental Binder should be unique
+			if (binder_ != nullptr && binder_ != binder) return false;
+			binder_ = binder;
+			return true;
+		}
+
+		virtual bool OnDraw(void)
+		{
+			if (invalidated_)
+			{
+				invalidated_ = false;
+				return true;
+			}
+			return false;
+		}
 
 		virtual void Invalidate(void) sealed
 		{
@@ -54,11 +73,27 @@ namespace himo
 		std::function<ValueType (ValueType)> func_validator_;
 		ValueType value_;
 
+		bool is_valid(ValueType v)
+		{
+			if (func_validator_ && func_comparator_)
+			{
+				ValueType v_validated = func_validator_(v);
+				if (func_comparator_(v, v_validated) != 0)
+				{	// invalid value
+					return false;
+				}
+			}
+			return true;
+		}
+
 		void update(ValueType v)
 		{
-			std::lock_guard<std::recursive_mutex> lock(mtx_v_);
-			value_ = v;
-			Invalidate();
+			if (is_valid(v))
+			{
+				std::lock_guard<std::recursive_mutex> lock(mtx_v_);
+				value_ = v;
+				Invalidate();
+			}
 		}
 
 		virtual void OnCommand(KeyType key) sealed
@@ -68,14 +103,10 @@ namespace himo
 
 			ValueType v = func_getter_(key);
 			
-			if (func_validator_ && func_comparator_)
+			if (!is_valid(v))
 			{
-				ValueType v_validated = func_validator_(v);
-				if (func_comparator_(v, v_validated) != 0)
-				{	// invalid value
-					func_setter_(key, value_);
-					return; // not update
-				}
+				func_setter_(key, value_);
+				return; // not update
 			}
 
 			if (!func_comparator_ || func_comparator_(value_, v) != 0)
@@ -96,40 +127,31 @@ namespace himo
 			OnCommand(key);
 		}
 
-		virtual void OnDraw(void) sealed
+		virtual bool OnDraw(void) sealed
 		{
-			if (invalidated_)
+			if (BoundBase<KeyType>::OnDraw())
 			{
-				invalidated_ = false;
-				if (!func_setter_) return;
+				if (!func_setter_) return true;
 				std::lock_guard<std::recursive_mutex> lock_v(mtx_v_);
-
-				if (func_validator_ && func_comparator_)
-				{
-					ValueType v_validated = func_validator_(value_);
-					if (func_comparator_(value_, v_validated) != 0)
-					{	// invalid value
-						return; // not update
-					}
-				}
-
 				std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
 				for (auto k : bound_keys_)
 				{
 					func_setter_(k, value_);
 				}
+				return true;
 			}
+			return false;
 		}
 
 		virtual bool Bind(IBinder *binder, KeyType key) sealed
 		{
-			binder_ = binder;
+			if (!BoundBase<KeyType>::Bind(binder, key)) return false;
 
 			std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
 			bound_keys_.push_back(key);
 			std::lock_guard<std::recursive_mutex> lock_v(mtx_v_);
 			if (func_setter_) func_setter_(key, value_);
-			return TRUE;
+			return true;
 		}
 	public:
 
@@ -203,12 +225,11 @@ namespace himo
 			//OnCommand(key);
 		}
 
-		virtual void OnDraw(void) sealed
+		virtual bool OnDraw(void) sealed
 		{
-			if (invalidated_)
+			if (BoundBase<KeyType>::OnDraw())
 			{
-				invalidated_ = false;
-				if (!func_enabler_) return;
+				if (!func_enabler_) return true;
 
 				std::lock_guard<std::recursive_mutex> lock_en(mtx_en_);
 				std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
@@ -216,12 +237,14 @@ namespace himo
 				{
 					func_enabler_(k, enabled_);
 				}
+				return true;
 			}
+			return false;
 		}
 
 		virtual bool Bind(IBinder *binder, KeyType key) sealed
 		{
-			binder_ = binder;
+			if (!BoundBase<KeyType>::Bind(binder, key)) return false;
 
 			std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
 			bound_keys_.push_back(key);
@@ -258,10 +281,10 @@ namespace himo
 	public:
 		virtual bool Bind(IBinder *bound, KeyType key) sealed
 		{
-			if (!bound->Bind(this, key)) return FALSE;
+			if (!bound->Bind(this, key)) return false;
 
 			bindings_[key].push_back(bound);
-			return TRUE;
+			return true;
 		}
 
 		virtual void OnCommand(KeyType key) sealed
@@ -286,7 +309,7 @@ namespace himo
 			}
 		}
 
-		virtual void OnDraw(void) sealed
+		virtual bool OnDraw(void) sealed
 		{
 			if (invalidated_)
 			{
@@ -295,7 +318,9 @@ namespace himo
 				{
 					for (auto b : pair.second) b->OnDraw();
 				}
+				return true;
 			}
+			return false;
 		}
 
 		virtual void Invalidate(void) sealed
