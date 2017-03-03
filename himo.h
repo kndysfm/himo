@@ -123,7 +123,6 @@ namespace himo
 
 		virtual bool Bind(IBinder *binder, KeyType key) sealed
 		{
-			if (!::IsWindow(key)) return false;
 			binder_ = binder;
 
 			std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
@@ -222,7 +221,6 @@ namespace himo
 
 		virtual bool Bind(IBinder *binder, KeyType key) sealed
 		{
-			if (!::IsWindow(key)) return FALSE;
 			binder_ = binder;
 
 			std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
@@ -260,8 +258,6 @@ namespace himo
 	public:
 		virtual bool Bind(IBinder *bound, KeyType key) sealed
 		{
-			if (!::IsWindow(key)) return FALSE;
-
 			if (!bound->Bind(this, key)) return FALSE;
 
 			bindings_[key].push_back(bound);
