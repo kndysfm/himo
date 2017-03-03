@@ -158,7 +158,7 @@ namespace himo
 		BoundData(ValueType iniValue): value_(iniValue){ }
 
 		void SetValue(ValueType v) { update(v); }
-		ValueType GetValue() const { return value_; }
+		ValueType const &GetValue() const { return value_; }
 		operator ValueType() const { return value_; }
 		BoundData & operator= (const ValueType& v) { update(v); return *this; }
 		void AttachGetter(std::function<ValueType(KeyType)> getter) { func_getter_ = getter; }
@@ -181,23 +181,25 @@ namespace himo
 		std::vector<KeyType> bound_keys_;
 		bool enabled_;
 		std::function<void(KeyType, bool)> func_enabler_;
-		bool async_;
+		bool async_, busy_;
 		std::thread thread_;
 		std::recursive_mutex mtx_en_, mtx_k_;
 		std::function<void(KeyType)> func_action_;
 
-		void update(bool executable)
+		void update(bool enable)
 		{
 			std::lock_guard<std::recursive_mutex> lock(mtx_en_);
-			enabled_ = executable;
+			enabled_ = enable;
 			Invalidate();
 		}
 
 		void action_async(KeyType key)
 		{
-			update(false);
+			busy_ = true;
+			Invalidate();
 			func_action_(key);
-			update(true);
+			busy_ = false;
+			Invalidate();
 		}
 
 		virtual void OnCommand(KeyType key) sealed
@@ -235,7 +237,7 @@ namespace himo
 				std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
 				for (auto k : bound_keys_)
 				{
-					func_enabler_(k, enabled_);
+					func_enabler_(k, enabled_ && !busy_);
 				}
 				return true;
 			}
@@ -255,10 +257,10 @@ namespace himo
 
 	public:
 
-		BoundCommand(bool executable = true) :enabled_(executable), async_(false) { }
+		BoundCommand(bool enable = true) :enabled_(enable), async_(false), busy_(false) { }
 		virtual ~BoundCommand() { if (thread_.joinable()) thread_.join(); }
 
-		void Enable(bool executable) { update(executable); }
+		void Enable(bool enable) { update(enable); }
 		bool IsEnabled() const { return enabled_; }
 
 		void AttachEnabler(std::function<void(KeyType, bool)> enabler) { func_enabler_ = enabler; }

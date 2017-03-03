@@ -32,7 +32,7 @@ typedef std::basic_string<_TCHAR> tstring;
 static himo::BoundData<HWND, tstring> bound_string(_T(""));
 static himo::BoundData<HWND, BOOL> bound_boolean(TRUE);
 // command bound to HWND of button mainly
-static himo::BoundCommand<HWND> command_append, command_toggle;
+static himo::BoundCommand<HWND> command_append, command_toggle, command_clear, command_enable(false), command_disable(true);
 // as a facade for window message handler procedure
 static himo::Binder<HWND> binder;
 
@@ -40,6 +40,7 @@ static void init_bindings(HWND hWnd)
 {
 	auto invalidate_rect = [](HWND h) { ::InvalidateRect(h, NULL, FALSE); }; // InvalidateRect returns BOOL type
 	binder.AttachInvalidator(std::bind(invalidate_rect, hWnd));
+
 	// Bind string value to show as window text
 	bound_string.AttachSetter(
 		[](HWND h, tstring str) {
@@ -55,6 +56,9 @@ static void init_bindings(HWND hWnd)
 		[](tstring a, tstring b) {
 		return (a == b) ? 0 : 1;
 	});
+	bound_string.AttachValidator(
+		[](tstring a) { if (a.size() > 8) a.resize(8); return a; }
+	);
 	binder.Bind(&bound_string, ::GetDlgItem(hWnd, IDC_EDIT1));
 	binder.Bind(&bound_string, ::GetDlgItem(hWnd, IDC_EDIT2));
 	binder.Bind(&bound_string, ::GetDlgItem(hWnd, IDC_EDIT3));
@@ -86,13 +90,42 @@ static void init_bindings(HWND hWnd)
 	);
 	binder.Bind(&command_append, ::GetDlgItem(hWnd, IDC_BUTTON1));
 
-	// Synchronous command
+	// Synchronous commands
 	command_toggle.AttachEnabler(func_enwin );
 	command_toggle.AttachAction(
 		[](HWND) { bound_boolean = !bound_boolean; }
 	);
 	binder.Bind(&command_toggle, ::GetDlgItem(hWnd, IDC_BUTTON2));
 
+	command_clear.AttachEnabler(func_enwin);
+	command_clear.AttachAction(
+		[](HWND) { bound_string = _T(""); }
+	);
+	binder.Bind(&command_clear, ::GetDlgItem(hWnd, IDC_BUTTON3));
+
+	command_enable.AttachEnabler(func_enwin);
+	command_enable.AttachAction(
+		[](HWND) { 
+		command_append.Enable(true); 
+		command_toggle.Enable(true);
+		command_clear.Enable(true);
+		command_enable.Enable(false);
+		command_disable.Enable(true);
+	}
+	);
+	binder.Bind(&command_enable, ::GetDlgItem(hWnd, IDC_BUTTON4));
+
+	command_disable.AttachEnabler(func_enwin);
+	command_disable.AttachAction(
+		[](HWND) { 
+		command_append.Enable(false);
+		command_toggle.Enable(false);
+		command_clear.Enable(false);
+		command_enable.Enable(true);
+		command_disable.Enable(false);
+	}
+	);
+	binder.Bind(&command_disable, ::GetDlgItem(hWnd, IDC_BUTTON5));
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
