@@ -255,6 +255,7 @@ namespace himo
 	private:
 		std::map<KeyType, std::vector<IBinder<KeyType> *>> bindings_;
 		std::function<void(void)> func_invalidator_;
+		bool invalidated_;
 
 	public:
 		virtual bool Bind(IBinder *bound, KeyType key) sealed
@@ -291,18 +292,28 @@ namespace himo
 
 		virtual void OnDraw(void) sealed
 		{
-			for (auto pair : bindings_)
+			if (invalidated_)
 			{
-				for (auto b : pair.second) b->OnDraw();
+				invalidated_ = false;
+				for (auto pair : bindings_)
+				{
+					for (auto b : pair.second) b->OnDraw();
+				}
 			}
 		}
 
 		virtual void Invalidate(void) sealed
 		{
-			if (func_invalidator_) func_invalidator_();
+			if (!invalidated_)
+			{
+				invalidated_ = true;
+				if (func_invalidator_) func_invalidator_();
+			}
 		}
 
 		void AttachInvalidator(std::function<void(void)> invalidator) { func_invalidator_ = invalidator; }
+
+		Binder() : invalidated_(true) { }
 
 	};
 }
