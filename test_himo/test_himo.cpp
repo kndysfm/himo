@@ -38,6 +38,8 @@ static himo::Binder<HWND> binder;
 
 static void init_bindings(HWND hWnd)
 {
+	auto invalidate_rect = [](HWND h) { ::InvalidateRect(h, NULL, FALSE); }; // InvalidateRect returns BOOL type
+	binder.AttachInvalidator(std::bind(invalidate_rect, hWnd));
 	// Bind string value to show as window text
 	bound_string.AttachSetter(
 		[](HWND h, tstring str) {
@@ -126,6 +128,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		HWND hwndCtrl = ::GetDlgItem(hWnd, idCtrl);
 		// Notify some changes to some values or commands
 		binder.OnNotify(hwndCtrl);
+		break;
+	}
+	case WM_PAINT:
+	{
+		binder.OnDraw();
 		break;
 	}
     case WM_DESTROY:

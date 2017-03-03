@@ -22,12 +22,31 @@ namespace himo
 		virtual bool Bind(IBinder<KeyType> *, KeyType) = 0;
 		virtual void OnCommand(KeyType) = 0;
 		virtual void OnNotify(KeyType) = 0;
+		virtual void OnDraw(void) = 0;
+		virtual void Invalidate(void) = 0;
+	};
+
+	template<typename KeyType>
+	class BoundBase : public IBinder<KeyType>
+	{
+	protected:
+		bool invalidated_;
+		IBinder<KeyType> *binder_;
+
+		BoundBase() : binder_(nullptr), invalidated_(true) { }
+
+		virtual void Invalidate(void) sealed
+		{
+			invalidated_ = true;
+			if (binder_) binder_->Invalidate();
+		}
 	};
 
 	template<typename KeyType, typename ValueType>
-	class BoundData: public IBinder<KeyType>
+	class BoundData: public BoundBase<KeyType>
 	{
 	private:
+		std::recursive_mutex mtx_v_, mtx_k_;
 		std::vector<KeyType> bound_keys_;
 		std::function<ValueType (KeyType)> func_getter_;
 		std::function<void (KeyType, ValueType)> func_setter_;
@@ -37,27 +56,15 @@ namespace himo
 
 		void update(ValueType v)
 		{
+			std::lock_guard<std::recursive_mutex> lock(mtx_v_);
 			value_ = v;
-			if (!func_setter_) return;
-
-			if (func_validator_ && func_comparator_)
-			{
-				ValueType v_validated = func_validator_(v);
-				if (func_comparator_(v, v_validated) != 0)
-				{	// invalid value
-					return; // not update
-				}
-			}
-
-			for (auto k : bound_keys_)
-			{
-				func_setter_(k, v);
-			}
+			Invalidate();
 		}
 
 		virtual void OnCommand(KeyType key) sealed
 		{
 			if (!func_getter_) return;
+			std::lock_guard<std::recursive_mutex> lock(mtx_v_);
 
 			ValueType v = func_getter_(key);
 			
@@ -75,6 +82,7 @@ namespace himo
 			{
 				value_ = v;
 				if (!func_setter_) return;
+				std::lock_guard<std::recursive_mutex> lock(mtx_k_);
 
 				for (auto k : bound_keys_)
 				{
@@ -88,17 +96,45 @@ namespace himo
 			OnCommand(key);
 		}
 
+		virtual void OnDraw(void) sealed
+		{
+			if (invalidated_)
+			{
+				invalidated_ = false;
+				if (!func_setter_) return;
+				std::lock_guard<std::recursive_mutex> lock_v(mtx_v_);
+
+				if (func_validator_ && func_comparator_)
+				{
+					ValueType v_validated = func_validator_(value_);
+					if (func_comparator_(value_, v_validated) != 0)
+					{	// invalid value
+						return; // not update
+					}
+				}
+
+				std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
+				for (auto k : bound_keys_)
+				{
+					func_setter_(k, value_);
+				}
+			}
+		}
+
 		virtual bool Bind(IBinder *binder, KeyType key) sealed
 		{
-			if (!::IsWindow(key)) return FALSE;
+			if (!::IsWindow(key)) return false;
+			binder_ = binder;
 
+			std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
 			bound_keys_.push_back(key);
+			std::lock_guard<std::recursive_mutex> lock_v(mtx_v_);
 			if (func_setter_) func_setter_(key, value_);
 			return TRUE;
 		}
 	public:
 
-		BoundData(ValueType iniValue):value_(iniValue) { }
+		BoundData(ValueType iniValue): value_(iniValue){ }
 
 		void SetValue(ValueType v) { update(v); }
 		ValueType GetValue() const { return value_; }
@@ -118,7 +154,7 @@ namespace himo
 	};
 
 	template<typename KeyType>
-	class BoundCommand : public IBinder<KeyType>
+	class BoundCommand : public BoundBase<KeyType>
 	{
 	private:
 		std::vector<KeyType> bound_keys_;
@@ -126,23 +162,18 @@ namespace himo
 		std::function<void(KeyType, bool)> func_enabler_;
 		bool async_;
 		std::thread thread_;
-		std::mutex mtx_;
+		std::recursive_mutex mtx_en_, mtx_k_;
 		std::function<void(KeyType)> func_action_;
 
 		void update(bool executable)
 		{
+			std::lock_guard<std::recursive_mutex> lock(mtx_en_);
 			enabled_ = executable;
-			if (!func_enabler_) return;
-
-			for (auto k : bound_keys_)
-			{
-				func_enabler_(k, executable);
-			}
+			Invalidate();
 		}
 
 		void action_async(KeyType key)
 		{
-			std::lock_guard<std::mutex> lock(mtx_);
 			update(false);
 			func_action_(key);
 			update(true);
@@ -173,11 +204,30 @@ namespace himo
 			//OnCommand(key);
 		}
 
+		virtual void OnDraw(void) sealed
+		{
+			if (invalidated_)
+			{
+				invalidated_ = false;
+				if (!func_enabler_) return;
+
+				std::lock_guard<std::recursive_mutex> lock_en(mtx_en_);
+				std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
+				for (auto k : bound_keys_)
+				{
+					func_enabler_(k, enabled_);
+				}
+			}
+		}
+
 		virtual bool Bind(IBinder *binder, KeyType key) sealed
 		{
 			if (!::IsWindow(key)) return FALSE;
+			binder_ = binder;
 
+			std::lock_guard<std::recursive_mutex> lock_k(mtx_k_);
 			bound_keys_.push_back(key);
+			std::lock_guard<std::recursive_mutex> lock_en(mtx_en_);
 			if (func_enabler_) func_enabler_(key, enabled_);
 			return TRUE;
 		}
@@ -187,11 +237,11 @@ namespace himo
 		BoundCommand(bool executable = true) :enabled_(executable), async_(false) { }
 		virtual ~BoundCommand() { if (thread_.joinable()) thread_.join(); }
 
-		void Enable(bool executable) { std::lock_guard<std::mutex> lock(mtx_); update(executable); }
+		void Enable(bool executable) { update(executable); }
 		bool IsEnabled() const { return enabled_; }
 
-		void AttachEnabler(std::function<void(KeyType, bool)> enabler) { std::lock_guard<std::mutex> lock(mtx_); func_enabler_ = enabler; }
-		void AttachAction(std::function<void(KeyType)> action, bool async = false) { std::lock_guard<std::mutex> lock(mtx_); func_action_ = action; async_ = async; }
+		void AttachEnabler(std::function<void(KeyType, bool)> enabler) { func_enabler_ = enabler; }
+		void AttachAction(std::function<void(KeyType)> action, bool async = false) { func_action_ = action; async_ = async; }
 		void CopyBehavior(BoundCommand const &src)
 		{
 			func_enabler_ = src->func_enabler_;
@@ -204,6 +254,7 @@ namespace himo
 	{
 	private:
 		std::map<KeyType, std::vector<IBinder<KeyType> *>> bindings_;
+		std::function<void(void)> func_invalidator_;
 
 	public:
 		virtual bool Bind(IBinder *bound, KeyType key) sealed
@@ -220,7 +271,10 @@ namespace himo
 		{
 			if (bindings_.count(key) == 1)
 			{
-				for (auto b: bindings_[key]) b->OnCommand(key);
+				for (auto b : bindings_[key])
+				{
+					b->OnCommand(key); 
+				}
 			}
 		}
 
@@ -228,8 +282,27 @@ namespace himo
 		{
 			if (bindings_.count(key) == 1)
 			{
-				for (auto b : bindings_[key]) b->OnNotify(key);
+				for (auto b : bindings_[key])
+				{
+					b->OnNotify(key);
+				} 
 			}
 		}
+
+		virtual void OnDraw(void) sealed
+		{
+			for (auto pair : bindings_)
+			{
+				for (auto b : pair.second) b->OnDraw();
+			}
+		}
+
+		virtual void Invalidate(void) sealed
+		{
+			if (func_invalidator_) func_invalidator_();
+		}
+
+		void AttachInvalidator(std::function<void(void)> invalidator) { func_invalidator_ = invalidator; }
+
 	};
 }
