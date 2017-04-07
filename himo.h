@@ -71,6 +71,7 @@ namespace himo
 		std::function<void (KeyType, ValueType)> func_setter_;
 		std::function<int (ValueType, ValueType)> func_comparator_;
 		std::function<ValueType (ValueType)> func_validator_;
+		std::function<void (const BoundData &)> func_on_change_;
 		ValueType value_;
 
 		bool is_valid(ValueType v)
@@ -90,9 +91,12 @@ namespace himo
 		{
 			if (is_valid(v))
 			{
-				std::lock_guard<std::recursive_mutex> lock(mtx_v_);
-				value_ = v;
-				Invalidate();
+				if (!func_comparator_ || func_comparator_(value_, v) != 0)
+				{
+					std::lock_guard<std::recursive_mutex> lock(mtx_v_);
+					value_ = v;
+					Invalidate();
+				}
 			}
 		}
 
@@ -112,6 +116,7 @@ namespace himo
 			if (!func_comparator_ || func_comparator_(value_, v) != 0)
 			{
 				value_ = v;
+				if (func_on_change_) func_on_change_(*this);
 				if (!func_setter_) return;
 				std::lock_guard<std::recursive_mutex> lock(mtx_k_);
 
@@ -165,12 +170,14 @@ namespace himo
 		void AttachSetter(std::function<void(KeyType, ValueType)> setter) { func_setter_ = setter; }
 		void AttachComparator(std::function<int(ValueType, ValueType)> comparator) { func_comparator_ = comparator; }
 		void AttachValidator(std::function<ValueType(ValueType)> validator) { func_validator_ = validator; }
+		void RegisterOnChange(std::function<void(const BoundData&)> on_change) { func_on_change_ = on_change; }
 		void CopyBehavior(BoundData const &src)
 		{
 			func_getter_ = src.func_getter_;
 			func_setter_ = src.func_setter_;
 			func_comparator_ = src.func_comparator_;
 			func_validator_ = src.func_validator_;
+			func_on_change_ = src.func_on_change_;
 		}
 	};
 
@@ -188,9 +195,12 @@ namespace himo
 
 		void update(bool enable)
 		{
-			std::lock_guard<std::recursive_mutex> lock(mtx_en_);
-			enabled_ = enable;
-			Invalidate();
+			if (enabled_ != enable)
+			{
+				std::lock_guard<std::recursive_mutex> lock(mtx_en_);
+				enabled_ = enable;
+				Invalidate();
+			}
 		}
 
 		void action_async(KeyType key)
@@ -267,8 +277,8 @@ namespace himo
 		void AttachAction(std::function<void(KeyType)> action, bool async = false) { func_action_ = action; async_ = async; }
 		void CopyBehavior(BoundCommand const &src)
 		{
-			func_enabler_ = src->func_enabler_;
-			func_action_ = src->func_action_;
+			func_enabler_ = src.func_enabler_;
+			func_action_ = src.func_action_;
 		}
 	};
 
